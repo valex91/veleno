@@ -15,6 +15,7 @@ const LOCAL_DNS_FILE = "/etc/hosts"
 
 type PoisonInfo struct {
 	BlockEnd        int
+	BlockStart      int
 	ExistingContent []string
 }
 
@@ -28,6 +29,22 @@ func hasPoisonBlock(text string) bool {
 
 func hasPoisonEnd(text string) bool {
 	return strings.Contains(text, POISON_C_END)
+}
+
+func cleanLocalDns(localDnsInfo PoisonInfo) {
+	hostFile, err := os.OpenFile(LOCAL_DNS_FILE, os.O_RDWR|os.O_TRUNC, 0644)
+
+	if err != nil {
+		log.Panicln("failed to clean up poison")
+	}
+
+	defer hostFile.Close()
+
+	upToBlock := localDnsInfo.ExistingContent[:localDnsInfo.BlockStart]
+	afterBlock := localDnsInfo.ExistingContent[localDnsInfo.BlockEnd+1:]
+
+	noPoisonFile := strings.Join(append(upToBlock, afterBlock...), "\n")
+	hostFile.Write([]byte(noPoisonFile))
 }
 
 func writeLocalDns(localDnsInfo PoisonInfo, domain string) {
@@ -63,11 +80,16 @@ func createLocalDnsInfo(domain string) PoisonInfo {
 
 	counter := 0
 	blockEnd := 0
+	blockStart := 0
 	scanner := bufio.NewScanner(hostFile)
 
 	for scanner.Scan() {
 		line := scanner.Text()
 		existingContent = append(existingContent, line)
+
+		if hasPoisonBlock(line) {
+			blockStart = counter
+		}
 
 		if hasPoisonEnd(line) {
 			blockEnd = counter
@@ -79,10 +101,16 @@ func createLocalDnsInfo(domain string) PoisonInfo {
 	return PoisonInfo{
 		BlockEnd:        blockEnd,
 		ExistingContent: existingContent,
+		BlockStart:      blockStart,
 	}
 }
 
 func PoisonLocalDns(domain string) {
 	dnsInfo := createLocalDnsInfo(domain)
 	writeLocalDns(dnsInfo, domain)
+}
+
+func UnPoisonLocalDns(domain string) {
+	localDnsInfo := createLocalDnsInfo(domain)
+	cleanLocalDns(localDnsInfo)
 }

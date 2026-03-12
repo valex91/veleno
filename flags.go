@@ -14,6 +14,7 @@ type ConnectionInfo struct {
 var hide ConnectionInfo
 var serve ConnectionInfo
 var isTls bool
+var isLogging bool
 
 func (connectionInfo *ConnectionInfo) String() string {
 	return fmt.Sprintf("%s:%s", connectionInfo.Domain, connectionInfo.Port)
@@ -32,4 +33,5 @@ func FlagsInit() {
 	flag.Var(&hide, "hide", "domain to substitute formatted as <address>:<port>")
 	flag.Var(&serve, "serve", "replace to serve formatted as <address>:<port>")
 	flag.BoolVar(&isTls, "tls", false, "pass to use https")
+	flag.BoolVar(&isLogging, "isLogging", false, "pass to log onto a file")
 }

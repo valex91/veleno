@@ -7,9 +7,11 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
+	"os/signal"
 )
 
-func proxy(poisonedConn net.Conn) {
+func proxy(poisonedConn net.Conn, logger io.Writer) {
 	serveConn, destError := net.Dial("tcp", serve.String())
 
 	if destError != nil {
@@ -20,7 +22,15 @@ func proxy(poisonedConn net.Conn) {
 		io.Copy(poisonedConn, serveConn)
 	}()
 
-	io.Copy(serveConn, poisonedConn)
+	var poisonedConnReader io.Reader
+
+	if logger != nil {
+		poisonedConnReader = io.TeeReader(poisonedConn, logger)
+	} else {
+		poisonedConnReader = poisonedConn
+	}
+
+	io.Copy(serveConn, poisonedConnReader)
 }
 
 func main() {
@@ -28,8 +38,18 @@ func main() {
 	flag.Parse()
 	PoisonLocalDns(hide.Domain)
 
+	interruptChannel := make(chan os.Signal, 1)
+	signal.Notify(interruptChannel, os.Interrupt)
+	connectionChannel := make(chan net.Conn)
+
 	var listen net.Listener
 	var listenErr error
+	var logger *os.File
+
+	if isLogging {
+		logger = LogToFile()
+		defer logger.Close()
+	}
 
 	if isTls {
 		cert, err := tls.LoadX509KeyPair("./cert.pem", "./key.pem")
@@ -53,9 +73,21 @@ func main() {
 		log.Fatalln("proxy failed to start at origin")
 	}
 
-	for {
-		conn, _ := listen.Accept()
+	go func() {
+		for {
+			conn, _ := listen.Accept()
+			connectionChannel <- conn
+		}
+	}()
 
-		go proxy(conn)
+	for {
+		select {
+		case <-interruptChannel:
+			UnPoisonLocalDns(hide.Domain)
+			os.Exit(0)
+
+		case conn := <-connectionChannel:
+			go proxy(conn, logger)
+		}
 	}
 }
